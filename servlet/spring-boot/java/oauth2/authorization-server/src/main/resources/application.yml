@@ -1,2 +1,10 @@
 server:
   port: 9000
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: trace
+    org.springframework.security: trace
+#    org.springframework.boot.autoconfigure: DEBUG
+debug: true

@@ -16,24 +16,14 @@
 
 package example;
 
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.interfaces.RSAPrivateKey;
-import java.security.interfaces.RSAPublicKey;
-import java.util.UUID;
-
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.source.ImmutableJWKSet;
 import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.proc.SecurityContext;
-
-import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Role;
 import org.springframework.core.annotation.Order;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.core.userdetails.User;
@@ -44,14 +34,21 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.oauth2.server.authorization.InMemoryOAuth2AuthorizationService;
 import org.springframework.security.oauth2.server.authorization.client.InMemoryRegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
-import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration;
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer;
 import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
+
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
+import java.util.UUID;
 
 /**
  * OAuth Authorization Server Configuration.
@@ -62,38 +59,104 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableWebSecurity
 public class OAuth2AuthorizationServerSecurityConfiguration {
 
-	@Bean
-	@Order(1)
-	public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
-		OAuth2AuthorizationServerConfiguration.applyDefaultSecurity(http);
-		return http.formLogin(Customizer.withDefaults()).build();
+
+
+
+	/*@Bean
+	public OAuth2AuthorizationService authorizationService() {
+		return new InMemoryOAuth2AuthorizationService();
 	}
 
 	@Bean
+	public AuthorizationServerSettings authorizationServerSettings() {
+		return AuthorizationServerSettings.builder()
+				.issuer("https://example.com")
+				.authorizationEndpoint("/oauth2/v1/authorize")
+				.tokenEndpoint("/oauth2/v1/token")
+				.tokenIntrospectionEndpoint("/oauth2/v1/introspect")
+				.tokenRevocationEndpoint("/oauth2/v1/revoke")
+				.jwkSetEndpoint("/oauth2/v1/jwks")
+				.oidcUserInfoEndpoint("/connect/v1/userinfo")
+				.oidcClientRegistrationEndpoint("/connect/v1/register")
+				.build();
+	}*/
+
+
+	@Bean
+	@Order(1)
+	public SecurityFilterChain authorizationServerSecurityFilterChain(HttpSecurity http) throws Exception {
+		OAuth2AuthorizationServerConfigurer authorizationServerConfigurer =
+				new OAuth2AuthorizationServerConfigurer();
+		http.apply(authorizationServerConfigurer);
+		//OAuth2ConfigurerUtils.getAuthorizationService(httpSecurity),
+
+		authorizationServerConfigurer
+				.clientAuthentication(clientAuthentication ->
+						clientAuthentication
+								.authenticationConverter(new OAuth2AuthorizationSmsAuthenticationConverter())
+								.authenticationProvider(new OAuth2SmsAuthenticationProvider(MyOAuth2ConfigurerUtils.getRegisteredClientRepository(http),
+										new InMemoryOAuth2AuthorizationService(),
+										MyOAuth2ConfigurerUtils.getTokenGenerator(http)))
+								.authenticationSuccessHandler(new SmsAuthenticationSuccessHandler())
+								.errorResponseHandler(new SmsAuthenticationFailureHandler())
+				)
+				.tokenEndpoint(tokenEndpoint ->
+						tokenEndpoint.accessTokenRequestConverters(e -> e.add(new OAuth2AuthorizationSmsAuthenticationConverter())));
+		http.csrf().disable();
+		return http.build();
+	}
+
+	/*@Bean
 	@Order(2)
 	public SecurityFilterChain standardSecurityFilterChain(HttpSecurity http) throws Exception {
 		// @formatter:off
 		http
-			.authorizeHttpRequests((authorize) -> authorize
-				.anyRequest().authenticated()
-			)
-			.formLogin(Customizer.withDefaults());
+				.authorizeHttpRequests((authorize) -> authorize
+						.anyRequest().authenticated()
+				)
+				.formLogin(Customizer.withDefaults());
 		// @formatter:on
 
 		return http.build();
-	}
+	}*/
+
+
+
+	/*@Bean
+	@Order(2)
+	public SecurityFilterChain standardSecurityFilterChain(HttpSecurity http) throws Exception {
+
+		// @formatter:off
+		http
+			.authorizeHttpRequests((authorize) -> authorize
+							.requestMatchers("/vendors/**",
+									"/css/**","/js/**","/Roboto/**","/images/**","/fonts/**").permitAll()
+					//.requestMatchers(authorizationServerEndpointsMatcher).permitAll()
+				.anyRequest().authenticated())
+				//.formLogin(Customizer.withDefaults());
+			//.formLogin(e -> e.loginPage("/login"))
+				//.csrf(csrf -> csrf.ignoringRequestMatchers(authorizationServerEndpointsMatcher))
+				//.apply(authorizationServerConfigurer)
+		;
+
+		// @formatter:on
+		return http.build();
+	}*/
 
 	@Bean
 	public RegisteredClientRepository registeredClientRepository() {
 		// @formatter:off
 		RegisteredClient loginClient = RegisteredClient.withId(UUID.randomUUID().toString())
-				.clientId("login-client")
+				.clientId("login-client2")
 				.clientSecret("{noop}openid-connect")
-				.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
+				//.clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
 				.authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
 				.authorizationGrantType(AuthorizationGrantType.REFRESH_TOKEN)
-				.redirectUri("http://127.0.0.1:8080/login/oauth2/code/login-client")
-				.redirectUri("http://127.0.0.1:8080/authorized")
+				.authorizationGrantType(AuthorizationGrantType.CLIENT_CREDENTIALS)
+				.authorizationGrantType(MyAuthorizationGrantType.SMS_CODE)
+				.redirectUri("http://127.0.0.1:8081/login/oauth2/code/login-client2")
+				.redirectUri("http://127.0.0.1:8081/authorized")
+				.redirectUri("https://www.baidu.com")
 				.scope(OidcScopes.OPENID)
 				.scope(OidcScopes.PROFILE)
 				.clientSettings(ClientSettings.builder().requireAuthorizationConsent(true).build())
@@ -132,7 +195,7 @@ public class OAuth2AuthorizationServerSecurityConfiguration {
 
 	@Bean
 	public AuthorizationServerSettings providerSettings() {
-		return AuthorizationServerSettings.builder().issuer("http://localhost:9000").build();
+		return AuthorizationServerSettings.builder().issuer("http://127.0.0.1:9000").build();
 	}
 
 	@Bean
@@ -140,7 +203,7 @@ public class OAuth2AuthorizationServerSecurityConfiguration {
 		// @formatter:off
 		UserDetails userDetails = User.withDefaultPasswordEncoder()
 				.username("user")
-				.password("password")
+				.password("123")
 				.roles("USER")
 				.build();
 		// @formatter:on
@@ -149,7 +212,7 @@ public class OAuth2AuthorizationServerSecurityConfiguration {
 	}
 
 	@Bean
-	@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
+	//@Role(BeanDefinition.ROLE_INFRASTRUCTURE)
 	KeyPair generateRsaKey() {
 		KeyPair keyPair;
 		try {
